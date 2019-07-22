@@ -14,87 +14,60 @@
 # limitations under the License.
 
 ## Author: ptone@google.com (Preston Holmes)
+## Author: glasnt@google.com (Katie McLaughlin)
 
 
+usage() { 
+   local name
+   name=$(basename "$0")
+   echo "${name} -- harness the power of reloadable content"
+   echo "see README.md" 
+}
 
-
-set -e
-set -o pipefail
-
-# Print a usage message and exit.
-usage(){
-  local name
-  name=$(basename "$0")
-
-  cat >&2 <<-EOF
-        ${name}
-
-        You should have gcloud installed and configured with a project by running:
-
-            $> gcloud auth login
-            $> gcloud config set project [PROJECT_ID]
-
-        This script performs the following steps: 
-        - builds the current golang package as a Docker container
-        - Extracts the binary from the container
-        - Uploads the new binary to an existing harness function which runs it in a new process
-
-        The server must respect the port environment variable and not be hardcoded to Cloud Run's 8080
-        This is because the dev harness runs it at 6060 and proxies 8080
-
-        You need to set the environment variable:
-
-
-            HARNESS_URL - the base URL of the harness
-        
-        This is most easily done with
-
-            export HARNESS_URL=\$(gcloud alpha run services describe dev-harness --region us-central1 --format='value(status.address.url)')
-
-example:
-
-HARNESS_URL=https://dev-harness-azzzzzzz-uc.a.run.app ${name}
-
-EOF
-
-  exit 1
+update_code(){
+    start=`date +%s`
+    sleep 0.5
+    tmpfile=$(mktemp /tmp/build-XXXXXX)
+    zip -R $tmpfile '*.py' -x './.venv/**'
+    curl --header "Content-Type:application/octet-stream" --data-binary @$tmpfile.zip $HARNESS_URL/_upload
+    rm $tmpfile
+    end=`date +%s`
+    runtime=$((end-start))
+    src_changed=0
+    echo
+    echo "------------ Done in $runtime seconds"
+    echo "------------ Waiting for src changes"
+    echo
 }
 
 main(){
 
     if [[ -z "$HARNESS_URL" ]] ; then
         usage
+        echo -e "\nHARNESS_URL not specified."
+        echo "You probably want to run the following: "
+        echo -e "\nexport HARNESS_URL=\$(gcloud alpha run services describe py-dev-harness --region us-central1 --platform managed --format='value(status.address.url)')\n"
+        exit 1
     fi
-    src_changed=0
-    while true; do
-        echo "------------ Waiting for src changes"
 
-        changes=$(inotifywait -q -r -e modify -e create `pwd`)
-        
-        while read path action file; do
-            echo $file
-            if [[ "$file" =~ .*py$ ]]; then # src file?
-                src_changed=1
+    echo "------------ Waiting for src changes"
+
+    fswatch -0 `pwd` | while read -d "" event;
+    do
+        what=""; changed=0
+        for line in $event; do
+            if [[ "$line" =~ .*py$ ]]; then
+                changed=1
+                what=$line
             fi
-        done <<< "$changes"
+        done
 
-        if [[ $src_changed == 1 ]]; then
-            start=`date +%s`
-            sleep 0.5
-            tmpfile=$(mktemp /tmp/build-XXXXXX)
-            zip -R $tmpfile '*.py' -x './.venv/**'
-            curl --header "Content-Type:application/octet-stream" --data-binary @$tmpfile.zip $HARNESS_URL/_upload
-            rm $tmpfile
-            end=`date +%s`
-            runtime=$((end-start))
-            src_changed=0
-            echo
-            echo "------------ Done in $runtime seconds"
-            echo
-            echo $HARNESS_URL
-            echo
+        if [[ $changed == 1 ]]; then
+            echo "I detected a useful event!"
+            update_code
         fi
     done
+
 }
 
 main "$@"

@@ -10,7 +10,7 @@ This is an experiment on fast developer iteration for Python running on [Cloud R
 Configure your cloud project:
 
         gcloud config set [your-project]
-        PROJECT=$(gcloud config list --format 'value(core.project)'
+        PROJECT=$(gcloud config list --format 'value(core.project)')
 
 Build the python "harness" run container:
 
@@ -33,11 +33,12 @@ In a terminal, start the update watcher:
 
 ## How it works
 
- - uses inotifywait to zip the current python
+ - uses inotifywait (on linux) or fswatch (on macos) to watch for changes
+ - then, zips the current python
  - uploads the zipfile to a special handler which over-writes the CWD
  - uses the flask debug server, which auto-reloads
 
- ## Caveats/TODO/improvements
+## Caveats/TODO/improvements
 
   - Note: you need to rebuild the harness if you change the requirements.txt
   - Clarify how the Dockerfile should be modified between dev and prod, e.g. should the entry point be a script which looks at an env var?
