@@ -36,9 +36,19 @@ update_code(){
     src_changed=0
     echo
     echo "------------ Done in $runtime seconds"
-    echo "------------ Waiting for src changes"
     echo
+    echo $HARNESS_URL
+    echo
+    echo $waitstring
 }
+
+install_docs(){ 
+
+    echo "You don't have either inotifywait or fswatch installed"
+    echo -e "If you're on Ubuntu/Debian:\n\tapt-get install inotify-tools"
+    echo -e "If you're on macOS:\n\tbrew install fswatch"
+} 
+
 
 main(){
 
@@ -50,7 +60,40 @@ main(){
         exit 1
     fi
 
-    echo "------------ Waiting for src changes"
+    if [ -x "$(command -v inotifywait)" ]; then
+        waitstring="------------ Waiting for src changes with inotifywait"
+        linux_watch
+    elif [ -x "$(command -v fswatch)" ]; then
+        waitstring="------------ Waiting for src changes with fswatch"
+        macos_watch
+    else
+        install_docs
+        exit 0
+    fi
+}
+
+linux_watch() { 
+    src_changed=0
+    while true; do
+        echo $waitstring
+
+        changes=$(inotifywait -q -r -e modify -e create `pwd`)
+
+        while read path action file; do
+            echo $file
+            if [[ "$file" =~ .*py$ ]]; then # src file?
+                src_changed=1
+            fi
+        done <<< "$changes"
+
+        if [[ $src_changed == 1 ]]; then
+            update_code
+        fi
+    done
+} 
+
+macos_watch() { 
+    echo $waitstring
 
     fswatch -0 `pwd` | while read -d "" event;
     do
@@ -63,7 +106,6 @@ main(){
         done
 
         if [[ $changed == 1 ]]; then
-            echo "I detected a useful event!"
             update_code
         fi
     done
